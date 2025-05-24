@@ -17,7 +17,7 @@
         </form>
     </div>
     <div class="col-md-6 text-end">
-        <a href="envoyer?action=add" class="btn btn-success me-2">Nouveau transfert</a>
+        <a href="envoyer?action=new" class="btn btn-success me-2">Nouveau transfert</a>
         <a href="envoyer?action=showPdfForm" class="btn btn-info">Générer PDF</a>
     </div>
 </div>

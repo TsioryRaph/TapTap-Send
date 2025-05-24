@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-app_6_0.xsd"
+         version="6.0">
+
+  <display-name>TapTapSend</display-name> <!-- Changé pour correspondre au nom de votre application -->
+
+  <!-- Configuration du contexte -->
+  <context-param>
+    <param-name>javax.servlet.context.tempdir</param-name>
+    <param-value>/WEB-INF/temp</param-value>
+  </context-param>
+
+  <!-- Configuration des fichiers d'accueil -->
+  <welcome-file-list>
+    <welcome-file>index.html</welcome-file>
+    <welcome-file>index.jsp</welcome-file>
+    <welcome-file>dashboard</welcome-file>
+  </welcome-file-list>
+
+  <!-- Déclaration explicite de votre servlet Dashboard -->
+  <servlet>
+    <servlet-name>DashboardController</servlet-name>
+    <servlet-class>com.taptapsend.controller.DashboardController</servlet-class>
+    <load-on-startup>1</load-on-startup> <!-- Charge le servlet au démarrage -->
+  </servlet>
+
+  <servlet-mapping>
+    <servlet-name>DashboardController</servlet-name>
+    <url-pattern>/dashboard</url-pattern>
+    <url-pattern>/TapTapSend/dashboard</url-pattern> <!-- Double mapping pour plus de flexibilité -->
+  </servlet-mapping>
+
+  <!-- Gestion des erreurs améliorée -->
+  <error-page>
+    <exception-type>java.lang.Exception</exception-type>
+    <location>/WEB-INF/views/error/general.jsp</location>
+  </error-page>
+
+  <error-page>
+    <error-code>404</error-code>
+    <location>/WEB-INF/views/error/404.jsp</location>
+  </error-page>
+
+  <error-page>
+    <error-code>500</error-code>
+    <location>/WEB-INF/views/error/500.jsp</location>
+  </error-page>
+
+  <!-- Configuration de session sécurisée -->
+  <session-config>
+    <session-timeout>30</session-timeout>
+    <cookie-config>
+      <http-only>true</http-only>
+      <secure>true</secure>
+      <name>JSESSIONID</name>
+      <path>/TapTapSend</path> <!-- Spécifique à votre contexte -->
+    </cookie-config>
+    <tracking-mode>COOKIE</tracking-mode>
+  </session-config>
+
+  <!-- Paramètres JSP -->
+  <jsp-config>
+    <jsp-property-group>
+      <url-pattern>*.jsp</url-pattern>
+      <el-ignored>false</el-ignored>
+      <page-encoding>UTF-8</page-encoding>
+      <scripting-invalid>false</scripting-invalid>
+      <include-prelude>/WEB-INF/views/header.jsp</include-prelude>
+      <include-coda>/WEB-INF/views/footer.jsp</include-coda>
+    </jsp-property-group>
+  </jsp-config>
+
+</web-app>

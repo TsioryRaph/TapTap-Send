@@ -29,7 +29,7 @@
   <servlet-mapping>
     <servlet-name>DashboardController</servlet-name>
     <url-pattern>/dashboard</url-pattern>
-    <url-pattern>/TapTapSend/dashboard</url-pattern> <!-- Double mapping pour plus de flexibilité -->
+    <url-pattern>/</url-pattern> <!-- Double mapping pour plus de flexibilité -->
   </servlet-mapping>
 
   <!-- Gestion des erreurs améliorée -->

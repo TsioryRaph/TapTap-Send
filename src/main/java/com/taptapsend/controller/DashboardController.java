@@ -7,7 +7,6 @@ import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-
 import java.io.IOException;
 import java.sql.SQLException;
 import java.util.logging.Level;
@@ -15,7 +14,7 @@ import java.util.logging.Logger;
 
 @WebServlet(
         name = "DashboardController",
-        urlPatterns = {"/dashboard", "/"},  // Ajout du pattern racine
+        urlPatterns = {"/dashboard"},
         loadOnStartup = 1
 )
 public class DashboardController extends HttpServlet {
@@ -24,74 +23,106 @@ public class DashboardController extends HttpServlet {
 
     @Override
     public void init() throws ServletException {
-        super.init();
         try {
+            // Initialisation avec vérification rigoureuse
             this.envoyerService = new EnvoyerService();
+
+            // Vérification ABSOLUE du fichier JSP
+            String jspPath = "/WEB-INF/views/dashboard.jsp";
+            String realPath = getServletContext().getRealPath(jspPath);
+
+            LOGGER.info("Vérification du JSP à l'emplacement: " + realPath);
+
+            if (realPath == null) {
+                throw new ServletException("Le chemin du JSP est null - Vérifiez la structure du projet");
+            }
+
+            if (!new java.io.File(realPath).exists()) {
+                throw new ServletException("Fichier JSP manquant. Doit être à: " + realPath);
+            }
+
             LOGGER.info("DashboardController initialisé avec succès");
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, "Échec de l'initialisation du DashboardController", e);
-            throw new ServletException("Échec de l'initialisation: " + e.getMessage(), e);
+            LOGGER.log(Level.SEVERE, "ÉCHEC CRITIQUE LORS DE L'INITIALISATION", e);
+            throw new ServletException("Échec de l'initialisation du contrôleur", e);
         }
     }
 
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
-        long startTime = System.currentTimeMillis();
-
         try {
-            // Debug: Afficher les informations de chemin
-            LOGGER.info("Requête reçue - Contexte: " + request.getContextPath()
-                    + ", ServletPath: " + request.getServletPath()
-                    + ", PathInfo: " + request.getPathInfo());
+            // Journalisation complète
+            LOGGER.info(String.format(
+                    "Requête reçue - URL: %s | IP: %s | Session: %s",
+                    request.getRequestURL(),
+                    request.getRemoteAddr(),
+                    request.getSession().getId()
+            ));
 
-            // Préparation des données pour la vue
-            prepareDashboardData(request);
+            // 1. Préparation des données - Modification ici : utilisation de Long
+            Long totalFrais = envoyerService.getTotalFrais();
+            LOGGER.info("Données récupérées - TotalFrais: " + totalFrais);
 
-            // Affichage de la vue
-            displayView(request, response, "/WEB-INF/views/dashboard.jsp");
+            request.setAttribute("totalFrais", totalFrais);
+            request.setAttribute("pageTitle", "Tableau de bord");
 
-            LOGGER.info("Dashboard affiché avec succès en "
-                    + (System.currentTimeMillis() - startTime) + "ms");
+            // 2. Forward vers la vue avec double vérification
+            String viewPath = "/WEB-INF/views/dashboard.jsp";
+            RequestDispatcher dispatcher = request.getRequestDispatcher(viewPath);
 
-        } catch (SQLException e) {
-            handleDatabaseError(request, response, e);
+            if (dispatcher == null) {
+                throw new ServletException("Dispatcher non trouvé pour: " + viewPath);
+            }
+
+            // Dernière vérification avant forward
+            if (response.isCommitted()) {
+                LOGGER.warning("La réponse a déjà été commitée!");
+                return;
+            }
+
+            dispatcher.forward(request, response);
+            LOGGER.info("Affichage du dashboard réussi");
+
         } catch (Exception e) {
-            handleGenericError(response, e);
+            handleGenericError(request, response, e);
         }
     }
 
-    private void prepareDashboardData(HttpServletRequest request) throws SQLException {
-        int totalFrais = envoyerService.getTotalFrais();
-        request.setAttribute("totalFrais", totalFrais);
-        request.setAttribute("pageTitle", "Tableau de bord");
+    private void handleGenericError(HttpServletRequest request, HttpServletResponse response, Exception e)
+            throws IOException, ServletException {
+        LOGGER.log(Level.SEVERE, "ERREUR NON GÉRÉE", e);
 
-        // Vous pouvez ajouter d'autres données ici si nécessaire
-        // request.setAttribute("autresDonnees", envoyerService.getAutresDonnees());
-    }
+        if (e instanceof SQLException) {
+            // Gestion spécifique des erreurs SQL
+            LOGGER.log(Level.SEVERE, "ERREUR DE BASE DE DONNÉES", e);
+            request.setAttribute("errorMessage", "Problème de connexion à la base de données");
+            request.setAttribute("errorDetails", e.getMessage());
 
-    private void displayView(HttpServletRequest request, HttpServletResponse response, String viewPath)
-            throws ServletException, IOException {
-        if (getServletContext().getResource(viewPath) == null) {
-            LOGGER.severe("Vue introuvable: " + viewPath);
-            response.sendError(HttpServletResponse.SC_NOT_FOUND, "Ressource introuvable");
-            return;
+            try {
+                request.getRequestDispatcher("/WEB-INF/views/error.jsp").forward(request, response);
+            } catch (IllegalStateException ex) {
+                LOGGER.severe("Erreur lors du forward vers error.jsp: " + ex.getMessage());
+                if (!response.isCommitted()) {
+                    response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                }
+            }
+        } else {
+            // Gestion des autres erreurs
+            if (!response.isCommitted()) {
+                try {
+                    response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+                            "Une erreur technique est survenue");
+                } catch (IllegalStateException ex) {
+                    LOGGER.severe("Échec de l'envoi de l'erreur: " + ex.getMessage());
+                }
+            }
         }
-
-        RequestDispatcher dispatcher = request.getRequestDispatcher(viewPath);
-        dispatcher.forward(request, response);
     }
 
-    private void handleDatabaseError(HttpServletRequest request, HttpServletResponse response, SQLException e)
-            throws ServletException, IOException {
-        LOGGER.log(Level.SEVERE, "Erreur SQL: " + e.getMessage(), e);
-        request.setAttribute("errorMessage", "Erreur de base de données: " + e.getMessage());
-        displayView(request, response, "/WEB-INF/views/error.jsp");
-    }
-
-    private void handleGenericError(HttpServletResponse response, Exception e) throws IOException {
-        LOGGER.log(Level.SEVERE, "Erreur inattendue: " + e.getMessage(), e);
-        response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
-                "Une erreur interne est survenue: " + e.getMessage());
+    @Override
+    public void destroy() {
+        LOGGER.info("Nettoyage du DashboardController");
+        // Libérer les ressources si nécessaire
     }
 }

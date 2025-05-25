@@ -23,7 +23,6 @@ public class EnvoyerService {
     private final FraisEnvoiDAO fraisEnvoiDAO;
     private final EmailUtil emailUtil;
 
-    // Injection des dépendances via le constructeur
     public EnvoyerService(EnvoyerDAO envoyerDAO, ClientDAO clientDAO,
                           TauxDAO tauxDAO, FraisEnvoiDAO fraisEnvoiDAO,
                           EmailUtil emailUtil) {
@@ -34,30 +33,35 @@ public class EnvoyerService {
         this.emailUtil = Objects.requireNonNull(emailUtil);
     }
 
-    // Constructeur par défaut pour compatibilité
     public EnvoyerService() {
         this(new EnvoyerDAO(), new ClientDAO(),
                 new TauxDAO(), new FraisEnvoiDAO(),
                 new EmailUtil());
     }
 
-    public void addEnvoi(Envoyer envoi) throws SQLException {
-        validateEnvoi(envoi);
+    public boolean addEnvoi(Envoyer envoi) {
+        try {
+            validateEnvoi(envoi);
 
-        Client envoyeur = getClientOrThrow(envoi.getNumEnvoyeur(), "Client envoyeur introuvable");
-        Client recepteur = getClientOrThrow(envoi.getNumRecepteur(), "Client récepteur introuvable");
+            Client envoyeur = getClientOrThrow(envoi.getNumEnvoyeur(), "Client envoyeur introuvable");
+            Client recepteur = getClientOrThrow(envoi.getNumRecepteur(), "Client récepteur introuvable");
 
-        validateInternationalTransfer(envoyeur, recepteur);
+            validateInternationalTransfer(envoyeur, recepteur);
 
-        FraisEnvoi fraisEnvoi = getFraisEnvoiOrThrow(envoyeur.getPays(), recepteur.getPays());
-        Taux taux = getTauxOrThrow(envoyeur.getPays(), recepteur.getPays());
+            FraisEnvoi fraisEnvoi = getFraisEnvoiOrThrow(envoyeur.getPays(), recepteur.getPays());
+            Taux taux = getTauxOrThrow(envoyeur.getPays(), recepteur.getPays());
 
-        int montantTotal = envoi.getMontant() + fraisEnvoi.getFrais();
-        validateSolde(envoyeur, montantTotal);
+            int montantTotal = envoi.getMontant() + fraisEnvoi.getFrais();
+            validateSolde(envoyeur, montantTotal);
 
-        int montantRecu = calculateMontantRecu(envoi.getMontant(), taux);
+            int montantRecu = calculateMontantRecu(envoi.getMontant(), taux);
 
-        processTransfer(envoi, envoyeur, recepteur, montantTotal, montantRecu, fraisEnvoi.getFrais());
+            return processTransfer(envoi, envoyeur, recepteur, montantTotal, montantRecu, fraisEnvoi.getFrais());
+
+        } catch (SQLException e) {
+            System.err.println("Erreur lors de l'ajout de l'envoi: " + e.getMessage());
+            return false;
+        }
     }
 
     private void validateEnvoi(Envoyer envoi) throws SQLException {
@@ -111,26 +115,28 @@ public class EnvoyerService {
         return (montant * taux.getMontant2()) / taux.getMontant1();
     }
 
-    private void processTransfer(Envoyer envoi, Client envoyeur, Client recepteur,
-                                 int montantTotal, int montantRecu, int frais) throws SQLException {
+    private boolean processTransfer(Envoyer envoi, Client envoyeur, Client recepteur,
+                                    int montantTotal, int montantRecu, int frais) {
         try {
             // Mettre à jour les soldes
             clientDAO.updateClientSolde(envoyeur.getNumtel(), envoyeur.getSolde() - montantTotal);
             clientDAO.updateClientSolde(recepteur.getNumtel(), recepteur.getSolde() + montantRecu);
 
-            // Enregistrer l'envoi avec les nouveaux champs
+            // Enregistrer l'envoi
             envoi.setIdEnv(UUID.randomUUID().toString());
             envoi.setDate(new Timestamp(System.currentTimeMillis()));
-            envoi.setFrais(frais);  // Utilisation du setter
-            envoi.setMontantRecu(montantRecu);  // Utilisation du setter
+            envoi.setFrais(frais);
+            envoi.setMontantRecu(montantRecu);
 
             envoyerDAO.addEnvoi(envoi);
 
             // Envoyer les notifications
             emailUtil.sendTransferEmail(envoyeur, recepteur, envoi.getMontant(), montantRecu, frais);
 
+            return true;
         } catch (SQLException e) {
-            throw new SQLException("Erreur lors du traitement du transfert: " + e.getMessage(), e);
+            System.err.println("Erreur lors du traitement du transfert: " + e.getMessage());
+            return false;
         }
     }
 
@@ -160,27 +166,40 @@ public class EnvoyerService {
         return envoyerDAO.getEnvoisByClientAndMonth(numtel, month, year);
     }
 
-    public void updateEnvoi(Envoyer envoi) throws SQLException {
-        if (envoi == null) {
-            throw new SQLException("L'objet envoi ne peut pas être null");
+    public boolean updateEnvoi(Envoyer envoi) {
+        try {
+            if (envoi == null) {
+                throw new SQLException("L'objet envoi ne peut pas être null");
+            }
+            if (!envoyerDAO.getEnvoiById(envoi.getIdEnv()).isPresent()) {
+                throw new SQLException("Envoi non trouvé, mise à jour impossible");
+            }
+            envoyerDAO.updateEnvoi(envoi);
+            return true;
+        } catch (SQLException e) {
+            System.err.println("Erreur lors de la mise à jour de l'envoi: " + e.getMessage());
+            return false;
         }
-        if (!envoyerDAO.getEnvoiById(envoi.getIdEnv()).isPresent()) {
-            throw new SQLException("Envoi non trouvé, mise à jour impossible");
-        }
-        envoyerDAO.updateEnvoi(envoi);
     }
 
-    public void deleteEnvoi(String idEnv) throws SQLException {
-        if (idEnv == null || idEnv.trim().isEmpty()) {
-            throw new SQLException("L'ID de l'envoi ne peut pas être vide");
+    public boolean deleteEnvoi(String idEnv) {
+        try {
+            if (idEnv == null || idEnv.trim().isEmpty()) {
+                throw new SQLException("L'ID de l'envoi ne peut pas être vide");
+            }
+            if (!envoyerDAO.getEnvoiById(idEnv).isPresent()) {
+                throw new SQLException("Envoi non trouvé, suppression impossible");
+            }
+            envoyerDAO.deleteEnvoi(idEnv);
+            return true;
+        } catch (SQLException e) {
+            System.err.println("Erreur lors de la suppression de l'envoi: " + e.getMessage());
+            return false;
         }
-        if (!envoyerDAO.getEnvoiById(idEnv).isPresent()) {
-            throw new SQLException("Envoi non trouvé, suppression impossible");
-        }
-        envoyerDAO.deleteEnvoi(idEnv);
     }
 
-    public int getTotalFrais() throws SQLException {
+    // Modification ici : Changement du type de retour de int à Long
+    public Long getTotalFrais() throws SQLException {
         return envoyerDAO.getTotalFrais();
     }
 }

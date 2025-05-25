@@ -17,7 +17,7 @@
 
         <div class="row g-3">
             <div class="col-md-6">
-                <label for="numtel" class="form-label">Client <span class="text-danger">*</span></label>
+                <label for="numtel" class="form-label">Client <span class="text-danger"></span></label>
                 <select class="form-select" id="numtel" name="numtel" required>
                     <option value="">Sélectionnez un client</option>
                     <c:forEach items="${clients}" var="client">
@@ -33,7 +33,7 @@
             </div>
 
             <div class="col-md-3">
-                <label for="month" class="form-label">Mois <span class="text-danger">*</span></label>
+                <label for="month" class="form-label">Mois <span class="text-danger"></span></label>
                 <select class="form-select" id="month" name="month" required>
                     <option value="">Sélectionnez un mois</option>
                     <option value="1" ${1 == currentMonth ? 'selected' : ''}>Janvier</option>
@@ -55,7 +55,7 @@
             </div>
 
             <div class="col-md-3">
-                <label for="year" class="form-label">Année <span class="text-danger">*</span></label>
+                <label for="year" class="form-label">Année <span class="text-danger"></span></label>
                 <input type="number" class="form-control" id="year" name="year"
                        min="2000" max="2100" value="${currentYear}" required>
                 <div class="invalid-feedback">

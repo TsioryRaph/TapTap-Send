@@ -97,9 +97,11 @@ public class EnvoyerDAO {
         }
     }
 
-    public int getTotalFrais() throws SQLException {
+    // Correction ici : Utilisation de Long au lieu de int
+    public Long getTotalFrais() throws SQLException {
         try (Connection connection = DBConnection.getConnection()) {
-            return queryRunner.query(connection, SELECT_TOTAL_FRAIS_SQL, new ScalarHandler<>());
+            // ScalarHandler<Long> pour récupérer directement un Long
+            return queryRunner.query(connection, SELECT_TOTAL_FRAIS_SQL, new ScalarHandler<Long>());
         }
     }
 }

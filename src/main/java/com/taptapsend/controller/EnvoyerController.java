@@ -22,6 +22,7 @@ import com.itextpdf.text.DocumentException;
 import java.util.Date;
 import java.util.List;
 import java.util.Calendar;
+import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -66,8 +67,9 @@ public class EnvoyerController extends HttpServlet {
                     redirectToEnvoiList(response);
             }
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Erreur lors du traitement POST", e);
-            handleError(request, response, "Erreur lors du traitement: " + e.getMessage());
+            logger.log(Level.SEVERE, "Erreur POST action: " + action, e);
+            request.getSession().setAttribute("errorMessage", "Erreur: " + e.getMessage());
+            redirectToEnvoiList(response);
         }
     }
 
@@ -98,8 +100,9 @@ public class EnvoyerController extends HttpServlet {
                 }
             }
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Erreur lors du traitement GET", e);
-            handleError(request, response, "Erreur lors de l'affichage: " + e.getMessage());
+            logger.log(Level.SEVERE, "Erreur GET action: " + action, e);
+            request.getSession().setAttribute("errorMessage", "Erreur: " + e.getMessage());
+            redirectToEnvoiList(response);
         }
     }
 
@@ -107,9 +110,14 @@ public class EnvoyerController extends HttpServlet {
             throws ServletException, IOException {
         try {
             List<Envoyer> envois = envoyerService.getAllEnvois();
+            logger.log(Level.INFO, "Nombre de transferts chargés: {0}", envois.size());
+
             request.setAttribute("envois", envois);
+            request.setAttribute("today", new Date());
+
             forwardToView("/WEB-INF/views/envoyer/list.jsp", request, response);
         } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Erreur récupération liste transferts", e);
             handleError(request, response, "Erreur lors de la récupération des transferts");
         }
     }
@@ -121,6 +129,7 @@ public class EnvoyerController extends HttpServlet {
             request.setAttribute("clients", clients);
             forwardToView("/WEB-INF/views/envoyer/add.jsp", request, response);
         } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Erreur récupération clients", e);
             handleError(request, response, "Erreur lors de la récupération des clients");
         }
     }
@@ -136,6 +145,7 @@ public class EnvoyerController extends HttpServlet {
         try {
             Envoyer envoi = envoyerService.getEnvoiById(idEnv);
             if (envoi == null) {
+                request.getSession().setAttribute("errorMessage", "Transfert non trouvé");
                 redirectToEnvoiList(response);
                 return;
             }
@@ -145,6 +155,7 @@ public class EnvoyerController extends HttpServlet {
             request.setAttribute("clients", clients);
             forwardToView("/WEB-INF/views/envoyer/edit.jsp", request, response);
         } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Erreur récupération transfert ID: " + idEnv, e);
             handleError(request, response, "Erreur lors de la récupération du transfert");
         }
     }
@@ -163,6 +174,7 @@ public class EnvoyerController extends HttpServlet {
 
             forwardToView("/WEB-INF/views/envoyer/pdfForm.jsp", request, response);
         } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Erreur préparation formulaire PDF", e);
             handleError(request, response, "Erreur lors de la préparation du formulaire PDF");
         }
     }
@@ -182,11 +194,15 @@ public class EnvoyerController extends HttpServlet {
 
             List<Envoyer> envois = envoyerService.getEnvoisByDate(date);
             request.setAttribute("envois", envois);
+            request.setAttribute("searchDate", dateStr);
+
             forwardToView("/WEB-INF/views/envoyer/list.jsp", request, response);
         } catch (ParseException e) {
-            request.setAttribute("error", "Format de date invalide");
+            logger.log(Level.WARNING, "Format date invalide: " + dateStr, e);
+            request.setAttribute("error", "Format de date invalide. Utilisez yyyy-MM-dd");
             listEnvois(request, response);
         } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Erreur recherche par date: " + dateStr, e);
             handleError(request, response, "Erreur lors de la recherche par date");
         }
     }
@@ -195,23 +211,26 @@ public class EnvoyerController extends HttpServlet {
             throws ServletException, IOException {
         try {
             Envoyer newEnvoi = extractEnvoiFromRequest(request);
-            envoyerService.addEnvoi(newEnvoi);
+            String idEnv = UUID.randomUUID().toString();
+            newEnvoi.setIdEnv(idEnv);
 
-            request.getSession().setAttribute("successMessage", "Transfert ajouté avec succès");
-            redirectToEnvoiList(response);
-        } catch (IllegalArgumentException e) {
-            request.setAttribute("error", e.getMessage());
-            try {
-                request.setAttribute("envoi", extractEnvoiFromRequest(request));
-            } catch (ParseException ex) {
-                request.setAttribute("error", "Erreur lors de la récupération des données du formulaire");
+            // Ajout du transfert
+            boolean success = envoyerService.addEnvoi(newEnvoi);
+
+            if (success) {
+                // Stocker le message de succès en session
+                request.getSession().setAttribute("successMessage",
+                        "Transfert #" + idEnv + " effectué avec succès");
+
+                // Redirection vers la liste des transferts
+                response.sendRedirect(request.getContextPath() + "/envoyer");
+            } else {
+                throw new SQLException("Échec de l'ajout du transfert");
             }
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Erreur lors de l'ajout", e);
+            request.setAttribute("error", e.getMessage());
             showNewForm(request, response);
-        } catch (ParseException e) {
-            request.setAttribute("error", "Format de date invalide");
-            showNewForm(request, response);
-        } catch (SQLException e) {
-            handleError(request, response, "Erreur lors de l'ajout du transfert");
         }
     }
 
@@ -219,23 +238,33 @@ public class EnvoyerController extends HttpServlet {
             throws ServletException, IOException {
         try {
             Envoyer envoi = extractEnvoiFromRequest(request);
-            envoi.setIdEnv(request.getParameter("idEnv"));
+            String idEnv = request.getParameter("idEnv");
+
+            if (idEnv == null || idEnv.isEmpty()) {
+                throw new IllegalArgumentException("ID transfert manquant");
+            }
+
+            envoi.setIdEnv(idEnv);
+
+            logger.log(Level.INFO, "Mise à jour transfert: {0}", envoi);
 
             envoyerService.updateEnvoi(envoi);
-            request.getSession().setAttribute("successMessage", "Transfert modifié avec succès");
-            redirectToEnvoiList(response);
-        } catch (IllegalArgumentException e) {
+
+            request.getSession().setAttribute("successMessage",
+                    "Transfert #" + idEnv + " modifié avec succès");
+
+            // Recharger la liste mise à jour
+            List<Envoyer> envois = envoyerService.getAllEnvois();
+            request.setAttribute("envois", envois);
+
+            forwardToView("/WEB-INF/views/envoyer/list.jsp", request, response);
+
+        } catch (IllegalArgumentException | ParseException e) {
+            logger.log(Level.WARNING, "Erreur validation formulaire", e);
             request.setAttribute("error", e.getMessage());
-            try {
-                request.setAttribute("envoi", extractEnvoiFromRequest(request));
-            } catch (ParseException ex) {
-                request.setAttribute("error", "Erreur lors de la récupération des données du formulaire");
-            }
-            showEditForm(request, response);
-        } catch (ParseException e) {
-            request.setAttribute("error", "Format de date invalide");
             showEditForm(request, response);
         } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Erreur mise à jour transfert", e);
             handleError(request, response, "Erreur lors de la modification du transfert");
         }
     }
@@ -243,45 +272,31 @@ public class EnvoyerController extends HttpServlet {
     private void handleDeleteEnvoi(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
         String idEnv = request.getParameter("idEnv");
-        if (idEnv != null && !idEnv.isEmpty()) {
-            try {
-                envoyerService.deleteEnvoi(idEnv);
-                request.getSession().setAttribute("successMessage", "Transfert supprimé avec succès");
-            } catch (SQLException e) {
-                handleError(request, response, "Erreur lors de la suppression du transfert");
-            }
+        if (idEnv == null || idEnv.isEmpty()) {
+            request.getSession().setAttribute("errorMessage", "ID transfert manquant");
+            redirectToEnvoiList(response);
+            return;
         }
-        redirectToEnvoiList(response);
-    }
 
-    private Envoyer extractEnvoiFromRequest(HttpServletRequest request) throws ParseException {
-        String numEnvoyeur = request.getParameter("numEnvoyeur");
-        String numRecepteur = request.getParameter("numRecepteur");
-        String raison = request.getParameter("raison");
-        String dateStr = request.getParameter("date");
-
-        int montant;
         try {
-            montant = Integer.parseInt(request.getParameter("montant"));
-            if (montant <= 0) {
-                throw new IllegalArgumentException("Le montant doit être positif");
-            }
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Montant invalide");
+            logger.log(Level.INFO, "Suppression transfert ID: {0}", idEnv);
+
+            envoyerService.deleteEnvoi(idEnv);
+
+            request.getSession().setAttribute("successMessage",
+                    "Transfert #" + idEnv + " supprimé avec succès");
+
+            // Recharger la liste mise à jour
+            List<Envoyer> envois = envoyerService.getAllEnvois();
+            request.setAttribute("envois", envois);
+
+            forwardToView("/WEB-INF/views/envoyer/list.jsp", request, response);
+        } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Erreur suppression transfert ID: " + idEnv, e);
+            request.getSession().setAttribute("errorMessage",
+                    "Erreur lors de la suppression du transfert");
+            redirectToEnvoiList(response);
         }
-
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm");
-        Date parsedDate = dateFormat.parse(dateStr);
-        Timestamp date = new Timestamp(parsedDate.getTime());
-
-        Envoyer envoi = new Envoyer();
-        envoi.setNumEnvoyeur(numEnvoyeur);
-        envoi.setNumRecepteur(numRecepteur);
-        envoi.setMontant(montant);
-        envoi.setRaison(raison);
-        envoi.setDate(date);
-
-        return envoi;
     }
 
     private void generatePdf(HttpServletRequest request, HttpServletResponse response)
@@ -292,28 +307,82 @@ public class EnvoyerController extends HttpServlet {
             int year = Integer.parseInt(request.getParameter("year"));
 
             if (month < 1 || month > 12) {
-                throw new ServletException("Mois invalide");
+                throw new IllegalArgumentException("Mois doit être entre 1 et 12");
             }
 
             Client client = clientService.getClientByNumtel(numtel);
             if (client == null) {
-                throw new ServletException("Client non trouvé");
+                throw new IllegalArgumentException("Client non trouvé");
             }
 
             List<Envoyer> operations = envoyerService.getEnvoisByClientAndMonth(numtel, month, year);
 
             response.setContentType("application/pdf");
-            response.setHeader("Content-Disposition", "attachment; filename=\"releve_operations.pdf\"");
+            response.setHeader("Content-Disposition",
+                    "attachment; filename=\"releve_" + numtel + "_" + month + "_" + year + ".pdf\"");
 
             try (OutputStream out = response.getOutputStream()) {
                 PDFGenerator.generateOperationStatement(client, operations, month, year, out);
             } catch (DocumentException e) {
-                throw new ServletException("Erreur lors de la création du PDF", e);
+                throw new ServletException("Erreur génération PDF", e);
             }
         } catch (NumberFormatException e) {
-            throw new ServletException("Format de mois ou année invalide", e);
+            throw new ServletException("Format mois/année invalide", e);
         } catch (SQLException e) {
-            throw new ServletException("Erreur d'accès à la base de données", e);
+            throw new ServletException("Erreur base de données", e);
+        }
+    }
+
+    private Envoyer extractEnvoiFromRequest(HttpServletRequest request)
+            throws ParseException, IllegalArgumentException {
+        String numEnvoyeur = validateField(request, "numEnvoyeur", "Numéro envoyeur requis");
+        String numRecepteur = validateField(request, "numRecepteur", "Numéro récepteur requis");
+        String montantStr = validateField(request, "montant", "Montant requis");
+        String dateStr = validateField(request, "date", "Date requise");
+
+        if (numEnvoyeur.equals(numRecepteur)) {
+            throw new IllegalArgumentException("L'envoyeur et le récepteur doivent être différents");
+        }
+
+        int montant = validatePositiveInt(montantStr, "Montant invalide ou négatif");
+        Timestamp date = parseDateTime(dateStr);
+
+        Envoyer envoi = new Envoyer();
+        envoi.setNumEnvoyeur(numEnvoyeur);
+        envoi.setNumRecepteur(numRecepteur);
+        envoi.setMontant(montant);
+        envoi.setDate(date);
+        envoi.setRaison(request.getParameter("raison"));
+
+        return envoi;
+    }
+
+    private String validateField(HttpServletRequest request, String fieldName, String errorMessage)
+            throws IllegalArgumentException {
+        String value = request.getParameter(fieldName);
+        if (value == null || value.trim().isEmpty()) {
+            throw new IllegalArgumentException(errorMessage);
+        }
+        return value.trim();
+    }
+
+    private int validatePositiveInt(String value, String errorMessage)
+            throws IllegalArgumentException {
+        try {
+            int num = Integer.parseInt(value);
+            if (num <= 0) throw new IllegalArgumentException(errorMessage);
+            return num;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(errorMessage);
+        }
+    }
+
+    private Timestamp parseDateTime(String dateStr) throws ParseException {
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm");
+            return new Timestamp(sdf.parse(dateStr).getTime());
+        } catch (ParseException e) {
+            throw new ParseException("Format de date invalide. Utilisez yyyy-MM-ddTHH:mm", 0);
         }
     }
 
